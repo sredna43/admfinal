@@ -1,0 +1,78 @@
+---
+title: "Mushroom Classification"
+author: "Paul Heltemes and Ander Olson"
+date: "5/10/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(FNN)
+```
+
+
+We will be examining how to best predict whether a mushroom is poisonous based on other properties. 
+
+First, we will load in the data and look at a simple visualization of it.
+
+```{r}
+mush.df <- read.csv("mushrooms.csv")
+```
+
+Since there are many predictors at play, let's look at color versus whether it is poisonous.
+
+```{r}
+plot(mush.df$cap.color,mush.df$class,xlab="color",ylab="Edible(e) or Poisonous(p)")
+```
+
+In this case, n=brown,b=buff, c=cinnamon,g=gray,r=green,p=pink,u=purple,e=red,w=white and y=yellow. We can see that if a person used color alone, for most of the more common mushrooms, you would be stuck at a near 50% success, which is the same as guessing randomly on a 2 factor classification. We do see that for some of the really rare colors, purple and green, they are 100% edible which might be make color a necessary predictor to distinguish the class of these few points.
+
+Let's first run KNN.
+
+```{r}
+calcErrorKnnClass <- function(kVal,data.df)
+{
+  numFolds <- 10
+  n <- nrow(data.df)
+  folds <- sample(1:numFolds,n,rep=T)
+  errs <- numeric(numFolds)
+  for(fold in 1:numFolds){
+   train.df <- data.df[folds != fold,] 
+   test.df <- data.df[folds == fold,]  
+   train.x <- data.matrix(train.df[,2:23])
+   resp.x<- data.matrix(train.df[c("class")])
+   test.x <- data.matrix(test.df[,2:23])
+   mod.knn <- knn(train.x,test.x,resp.x,k=kVal)
+   classes <- c("p","e") 
+   errs[fold] <- with(test.df,mean(class != classes[(mod.knn==1)+1]))
+  }
+  (mean(errs))
+}
+```
+
+```{r}
+err <- vector()
+err[1] <- calcErrorKnnClass(1,mush.df)
+for(i in c(3:50))
+{
+  err[i-1] <- calcErrorKnnClass(i,mush.df)
+}
+Knn_error <- min(err)
+(Knn_error)
+```
+
+That's a very small error, on some tests it is even 0. 
+
+Let's graph this to see what is happening to get such a small minimum.
+
+```{r}
+res.df <- data.frame(kVal=c(1,seq(3,50)),mse=err)
+plot(res.df)
+```
+
+```
+
+
+
+
+
