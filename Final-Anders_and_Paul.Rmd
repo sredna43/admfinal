@@ -8,6 +8,8 @@ output: pdf_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(FNN)
+library(tidyverse)
+library(rpart)
 ```
 
 
@@ -70,9 +72,49 @@ res.df <- data.frame(kVal=c(1,seq(3,50)),mse=err)
 plot(res.df)
 ```
 
+
+Now let's take a look at a Linear Classification Model.
+
+First, let's look into the data a little bit to see if there are any factors that we can disregard.
+
+```{r}
+str(mush.df)
 ```
 
+Looks like veil.type is useless as it only has 1 factor.
 
+```{r}
+mush.df$veil.type <- NULL
+```
 
+Let's just see a little bit more about our data.
 
+```{r}
+table(mush.df$class)
+```
+
+Now let's try using glm
+```{r}
+data.df <- mush.df
+data.df <- data.df %>%
+   mutate(class = ifelse(class == 'e',0,1))
+numFolds <- 10
+n <- nrow(data.df)
+folds <- sample(1:numFolds,n,rep=T)
+errs <- numeric(numFolds)
+for(fold in 1:numFolds){
+   train.df <- data.df[folds != fold,] 
+   test.df <- data.df[folds == fold,]
+   mod.lm <- glm(class~., 
+                 data=train.df,
+                 family=binomial())
+   test.df$preds <- predict(mod.lm, 
+                            newdata = test.df, 
+                            type = "response")
+   errs[fold] <- with(test.df,mean((class - preds)^2))
+}
+(mean(errs))
+```
+
+Well, the model doesn't converge when we use all of the factors. Essentially, it seems like you truly can fit a model perfectly with mushrooms if you're given their attributes.
 
