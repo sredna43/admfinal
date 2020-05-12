@@ -95,25 +95,29 @@ table(mush.df$class)
 
 Now let's try using glm
 ```{r}
-data.df <- mush.df
-data.df <- data.df %>%
-   mutate(class = ifelse(class == 'e',0,1))
-numFolds <- 10
-n <- nrow(data.df)
-folds <- sample(1:numFolds,n,rep=T)
-errs <- numeric(numFolds)
-for(fold in 1:numFolds){
-   train.df <- data.df[folds != fold,] 
-   test.df <- data.df[folds == fold,]
-   mod.lm <- glm(class~., 
-                 data=train.df,
-                 family=binomial())
-   test.df$preds <- predict(mod.lm, 
-                            newdata = test.df, 
-                            type = "response")
-   errs[fold] <- with(test.df,mean((class - preds)^2))
+calcErrorLMClass <- function(test_formula){
+   frm <- as.formula(test_formula)
+   data.df <- mush.df
+   data.df <- data.df %>%
+      mutate(class = ifelse(class == 'e',0,1))
+   numFolds <- 10
+   n <- nrow(data.df)
+   folds <- sample(1:numFolds,n,rep=T)
+   errs <- numeric(numFolds)
+   for(fold in 1:numFolds){
+      train.df <- data.df[folds != fold,] 
+      test.df <- data.df[folds == fold,]
+      mod.lm <- glm(frm, 
+                    data=train.df,
+                    family=binomial())
+      test.df$preds <- predict(mod.lm, 
+                               newdata = test.df, 
+                               type = "response")
+      errs[fold] <- with(test.df,mean((class - preds)^2))
+   }
+   (mean(errs))
 }
-(mean(errs))
+calcErrorLMClass("class ~ odor + bruises + cap.shape")
 ```
 
 Well, the model doesn't converge when we use all of the factors. Essentially, it seems like you truly can fit a model perfectly with mushrooms if you're given their attributes.
