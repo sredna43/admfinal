@@ -203,12 +203,31 @@ ggplot(mush.df, aes(x = gill.size, y = gill.spacing, col = class)) +
 
 ## RPART
 
+Pick an ideal CP
+
+```{r}
+data.df <- mush.df
+numFolds <- 10
+n <- nrow(data.df)
+folds <- sample(1:numFolds,n,rep=T)
+train.df <- data.df[folds != 4,]
+mod.rpart <- rpart(class ~ ., 
+                    data=train.df,
+                    method = "class",
+                    cp = 0.000001)
+plotcp(mod.rpart)
+```
+
+Find best CP
+```{r}
+bestCP <- mod.rpart$cptable[which.min(mod.rpart$cptable[, "xerror"]), "CP"]
+```
+
+Let's do some CV stuff with folds
 ```{r}
 calcErrorRpartClass <- function(test_formula){
    frm <- as.formula(test_formula)
    data.df <- mush.df
-   ## Get rid of odor for now
-   data.df$odor <- NULL
    numFolds <- 10
    n <- nrow(data.df)
    folds <- sample(1:numFolds,n,rep=T)
@@ -219,7 +238,7 @@ calcErrorRpartClass <- function(test_formula){
       mod.rpart <- rpart(frm, 
                     data=train.df,
                     method = "class",
-                    cp = 0.00001)
+                    cp = bestCP)
       test.df$preds <- predict(mod.rpart, 
                                newdata = test.df, 
                                type = "class")
@@ -227,5 +246,25 @@ calcErrorRpartClass <- function(test_formula){
    }
    (mean(errs))
 }
-calcErrorRpartClass("class ~ cap.color + cap.surface")
+calcErrorRpartClass("class ~ .")
+```
+
+
+Curiosity never really killed the cat, only action did.
+
+```{r}
+library(rpart.plot)
+## Make a new model using best cp
+mod.rpart.pruned <- prune(mod.rpart, cp = bestCP)
+rpart.plot(mod.rpart.pruned, extra = 100, box.palette = "GnBu", nn = T)
+```
+
+
+
+## RandomForest
+
+```{r}
+library(randomForest)
+mod.rf <- randomForest(class ~ ., ntree = 50, data = train.df)
+plot(mod.rf)
 ```
