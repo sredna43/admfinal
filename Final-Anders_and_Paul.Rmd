@@ -92,6 +92,7 @@ Let's just see a little bit more about our data.
 ```{r}
 table(mush.df$class)
 ```
+## GLM
 
 Now let's try using glm
 ```{r}
@@ -125,6 +126,8 @@ calcErrorGLMClass("class ~ .")
 ```
 
 Well, the model doesn't converge when we use all of the factors. Essentially, it seems like you truly can fit a model perfectly with mushrooms if you're given their attributes.
+
+## LM
 
 How about just LM?
 
@@ -162,6 +165,8 @@ We get a few errors (unsurprisingly) but we also get a pretty low error rate... 
 
 Since these models are giving us such great results, let's see if we can find some meaningful subset of predictors that we could potentially use in the wild. Before we do that, it seems like odor is by far the best predictor of edible/poisonous so let's take a look at that.
 
+## PLOTS
+
 ```{r}
 library(ggplot2)
 ggplot(mush.df, aes(x = class, y = odor, col = class)) +
@@ -183,4 +188,44 @@ ggplot(mush.df, aes(x = cap.shape, y = cap.color, col = class)) +
                       values = c("green", "red"),
                       labels = c("Edible", "Poisonous"))+
    labs(title = "Mushroom classification based on cap color and shape")
+```
+
+Do gills have anything to do with it?
+
+```{r}
+ggplot(mush.df, aes(x = gill.size, y = gill.spacing, col = class)) +
+   geom_jitter(alpha = 0.5) +
+   scale_color_manual(breaks = c("e", "p"),
+                      values = c("green", "red"),
+                      labels = c("Edible", "Poisonous"))+
+   labs(title = "Mushroom classification based on gill size and spacing")
+```
+
+## RPART
+
+```{r}
+calcErrorRpartClass <- function(test_formula){
+   frm <- as.formula(test_formula)
+   data.df <- mush.df
+   ## Get rid of odor for now
+   data.df$odor <- NULL
+   numFolds <- 10
+   n <- nrow(data.df)
+   folds <- sample(1:numFolds,n,rep=T)
+   errs <- numeric(numFolds)
+   for(fold in 1:numFolds){
+      train.df <- data.df[folds != fold,] 
+      test.df <- data.df[folds == fold,]
+      mod.rpart <- rpart(frm, 
+                    data=train.df,
+                    method = "class",
+                    cp = 0.00001)
+      test.df$preds <- predict(mod.rpart, 
+                               newdata = test.df, 
+                               type = "class")
+      errs[fold] <- with(test.df,mean(class != preds))
+   }
+   (mean(errs))
+}
+calcErrorRpartClass("class ~ cap.color + cap.surface")
 ```
