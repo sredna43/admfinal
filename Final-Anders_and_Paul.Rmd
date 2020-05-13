@@ -95,11 +95,13 @@ table(mush.df$class)
 
 Now let's try using glm
 ```{r}
-calcErrorLMClass <- function(test_formula){
+calcErrorGLMClass <- function(test_formula){
    frm <- as.formula(test_formula)
    data.df <- mush.df
+   ## Get rid of odor for now
    data.df <- data.df %>%
       mutate(class = ifelse(class == 'e',0,1))
+   data.df$odor <- NULL
    numFolds <- 10
    n <- nrow(data.df)
    folds <- sample(1:numFolds,n,rep=T)
@@ -113,12 +115,72 @@ calcErrorLMClass <- function(test_formula){
       test.df$preds <- predict(mod.lm, 
                                newdata = test.df, 
                                type = "response")
-      errs[fold] <- with(test.df,mean((class - preds)^2))
+      test.df <- test.df %>%
+         mutate(preds = ifelse(preds > 0.5, 1, 0))
+      errs[fold] <- with(test.df,mean(class != preds))
    }
    (mean(errs))
 }
-calcErrorLMClass("class ~ odor + bruises + cap.shape")
+calcErrorGLMClass("class ~ .")
 ```
 
 Well, the model doesn't converge when we use all of the factors. Essentially, it seems like you truly can fit a model perfectly with mushrooms if you're given their attributes.
 
+How about just LM?
+
+```{r}
+calcErrorLMClass <- function(test_formula){
+   frm <- as.formula(test_formula)
+   data.df <- mush.df
+   ## Get rid of odor for now
+   data.df <- data.df %>%
+      mutate(class = ifelse(class == 'e',0,1))
+   data.df$odor <- NULL
+   numFolds <- 10
+   n <- nrow(data.df)
+   folds <- sample(1:numFolds,n,rep=T)
+   errs <- numeric(numFolds)
+   for(fold in 1:numFolds){
+      train.df <- data.df[folds != fold,] 
+      test.df <- data.df[folds == fold,]
+      mod.lm <- lm(frm, 
+                    data=train.df,
+                    family=binomial())
+      test.df$preds <- predict(mod.lm, 
+                               newdata = test.df, 
+                               type = "response")
+      test.df <- test.df %>%
+         mutate(preds = ifelse(preds > 0.5, 1, 0))
+      errs[fold] <- with(test.df,mean(class != preds))
+   }
+   (mean(errs))
+}
+calcErrorLMClass("class ~ .")
+```
+
+We get a few errors (unsurprisingly) but we also get a pretty low error rate... extremely low. However, someone could still die!
+
+Since these models are giving us such great results, let's see if we can find some meaningful subset of predictors that we could potentially use in the wild. Before we do that, it seems like odor is by far the best predictor of edible/poisonous so let's take a look at that.
+
+```{r}
+library(ggplot2)
+ggplot(mush.df, aes(x = class, y = odor, col = class)) +
+   geom_jitter(alpha = 0.5) +
+   scale_color_manual(breaks = c("e", "p"),
+                      values = c("green", "red"),
+                      labels = c("Edible", "Poisonous"))+
+   labs(title = "Mushroom classification based on odor")
+```
+
+If it smells bad, don't eat it.
+
+What if we lose our sense of smell? Well, let's assume that we are still able to see clearly.
+
+```{r}
+ggplot(mush.df, aes(x = cap.shape, y = cap.color, col = class)) +
+   geom_jitter(alpha = 0.5) +
+   scale_color_manual(breaks = c("e", "p"),
+                      values = c("green", "red"),
+                      labels = c("Edible", "Poisonous"))+
+   labs(title = "Mushroom classification based on cap color and shape")
+```
