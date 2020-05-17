@@ -1,7 +1,7 @@
 ---
 title: "Mushroom Classification"
-author: "Paul Heltemes and Ander Olson"
-date: "5/10/2020"
+author: "Paul Heltemes and Anders Olson"
+date: "5/19/2020"
 output: pdf_document
 ---
 
