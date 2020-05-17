@@ -8,8 +8,8 @@ output: pdf_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(FNN)
+library(randomForest)
 library(tidyverse)
-library(rpart)
 ```
 
 
@@ -34,6 +34,7 @@ Let's first run KNN.
 ```{r}
 calcErrorKnnClass <- function(kVal,data.df)
 {
+  numPreds <- ncol(data.df)
   numFolds <- 10
   n <- nrow(data.df)
   folds <- sample(1:numFolds,n,rep=T)
@@ -41,9 +42,9 @@ calcErrorKnnClass <- function(kVal,data.df)
   for(fold in 1:numFolds){
    train.df <- data.df[folds != fold,] 
    test.df <- data.df[folds == fold,]  
-   train.x <- data.matrix(train.df[,2:23])
+   train.x <- data.matrix(train.df[,2:numPreds])
    resp.x<- data.matrix(train.df[c("class")])
-   test.x <- data.matrix(test.df[,2:23])
+   test.x <- data.matrix(test.df[,2:numPreds])
    mod.knn <- knn(train.x,test.x,resp.x,k=kVal)
    classes <- c("p","e") 
    errs[fold] <- with(test.df,mean(class != classes[(mod.knn==1)+1]))
@@ -72,100 +73,99 @@ res.df <- data.frame(kVal=c(1,seq(3,50)),mse=err)
 plot(res.df)
 ```
 
+The higher the kVal the worse the prediction. The predictors must match pretty well to the data.
 
-Now let's take a look at a Linear Classification Model.
 
-First, let's look into the data a little bit to see if there are any factors that we can disregard.
 
-```{r}
-str(mush.df)
-```
+Since having predictors be all classifying lends it self to branch splits on the factors, it would make sense to use a decision tree.. 
 
-Looks like veil.type is useless as it only has 1 factor.
+So, we look at decision trees using random forest. 
 
 ```{r}
-mush.df$veil.type <- NULL
-```
-
-Let's just see a little bit more about our data.
-
-```{r}
-table(mush.df$class)
-```
-## GLM
-
-Now let's try using glm
-```{r}
-calcErrorGLMClass <- function(test_formula){
-   frm <- as.formula(test_formula)
-   data.df <- mush.df
-   ## Get rid of odor for now
-   data.df <- data.df %>%
-      mutate(class = ifelse(class == 'e',0,1))
-   data.df$odor <- NULL
-   numFolds <- 10
-   n <- nrow(data.df)
-   folds <- sample(1:numFolds,n,rep=T)
-   errs <- numeric(numFolds)
-   for(fold in 1:numFolds){
-      train.df <- data.df[folds != fold,] 
-      test.df <- data.df[folds == fold,]
-      mod.lm <- glm(frm, 
-                    data=train.df,
-                    family=binomial())
-      test.df$preds <- predict(mod.lm, 
-                               newdata = test.df, 
-                               type = "response")
-      test.df <- test.df %>%
-         mutate(preds = ifelse(preds > 0.5, 1, 0))
-      errs[fold] <- with(test.df,mean(class != preds))
-   }
-   (mean(errs))
+randomForestMSE <- function(numPreds,data.df)
+{
+  numTree <- 100
+  mod.bag <- randomForest(class ~ .,
+                        data=data.df,
+                        ntree=numTree,
+                        mtry=(numPreds))
+  mean(mod.bag$err.rate)
 }
-calcErrorGLMClass("class ~ .")
 ```
 
-Well, the model doesn't converge when we use all of the factors. Essentially, it seems like you truly can fit a model perfectly with mushrooms if you're given their attributes.
+Let's use every predictor for now.
+```{r}
+randomForestMSE(22,mush.df)
+```
 
-## LM
-
-How about just LM?
+Still near 0 error. There must be something 
 
 ```{r}
-calcErrorLMClass <- function(test_formula){
-   frm <- as.formula(test_formula)
-   data.df <- mush.df
-   ## Get rid of odor for now
-   data.df <- data.df %>%
-      mutate(class = ifelse(class == 'e',0,1))
-   data.df$odor <- NULL
-   numFolds <- 10
-   n <- nrow(data.df)
-   folds <- sample(1:numFolds,n,rep=T)
-   errs <- numeric(numFolds)
-   for(fold in 1:numFolds){
-      train.df <- data.df[folds != fold,] 
-      test.df <- data.df[folds == fold,]
-      mod.lm <- lm(frm, 
-                    data=train.df,
-                    family=binomial())
-      test.df$preds <- predict(mod.lm, 
-                               newdata = test.df, 
-                               type = "response")
-      test.df <- test.df %>%
-         mutate(preds = ifelse(preds > 0.5, 1, 0))
-      errs[fold] <- with(test.df,mean(class != preds))
-   }
-   (mean(errs))
-}
-calcErrorLMClass("class ~ .")
+numTree <- 100
+mod.bag <- randomForest(class ~ .,
+                       data=mush.df,
+                       ntree=numTree,
+                       mtry=(22),
+                       importance=TRUE)
+importVals <-mod.bag$importance
+importVals <- importVals[,1]
+varNames <- row.names(mod.bag$importance)
+importanceBag.df <- data.frame(importance=importVals,
+                     var=varNames)%>%
+    arrange(desc(importance))
+varNames <- importanceBag.df$var
+importanceBag.df <-importanceBag.df%>%
+    mutate(var=factor(var,levels=rev(varNames)))
+
+bag.gg <- importanceBag.df[1:22,] %>%
+    ggplot()+
+    geom_bar(aes(var,importance),stat="identity",fill="red")+
+    coord_flip()+
+    labs(title="Importance of Predictors",
+         subtitle="Bagging",
+         x="",
+         y="")
+bag.gg
 ```
 
-We get a few errors (unsurprisingly) but we also get a pretty low error rate... extremely low. However, someone could still die!
+Wow, that odor predictor seems almost too important. What happens if we go through every mushroom and say "if its a bad smell, its poisonous, else edible" and see how well it predicts.
 
-Since these models are giving us such great results, let's see if we can find some meaningful subset of predictors that we could potentially use in the wild. Before we do that, it seems like odor is by far the best predictor of edible/poisonous so let's take a look at that.
+Here's how we classify it. 
+Good smells: n (none), a (almond), l (almise)
+Bad smells: y(fishy), f (foul), e (creosote), s (spicy), m (musty), p (pungent) 
 
-## PLOTS
+```{r}
+pleasant_poison <- 0
+stinky_edible <- 0
+
+for (i in 1:nrow(mush.df))
+{
+   if(mush.df$odor[i]== 'n' || mush.df$odor[i]== 'a' || mush.df$odor[i]== 'l' )
+   {
+      if(mush.df$class[i] != 'e' )
+      {
+         pleasant_poison <- pleasant_poison+1
+      }
+   }
+   else
+   {
+      if(mush.df$class[i] != 'p')
+      {
+         stinky_edible <- stinky_edible +1
+      }
+   }
+}
+```
+
+
+```{r}
+(pleasant_poison)
+(stinky_edible)
+```
+
+So, only assuming we know nothing but its odor we would only get 120 out of 8124 wrong. Also, through some other calculations, we found that all 120 of those were from mushrooms that had no smell but were poisonous. 
+
+Here is how it looks visually.
 
 ```{r}
 library(ggplot2)
@@ -179,34 +179,213 @@ ggplot(mush.df, aes(x = class, y = odor, col = class)) +
 
 If it smells bad, don't eat it.
 
-What if we lose our sense of smell? Well, let's assume that we are still able to see clearly.
+The model relies heavily on odor. But what if odor isn't an option? Your nose is clogged, the forest leaves produce a musty smell that make all the mushrooms smell musty or you are identifying by picture. Unlike most of the other predictors, odor is not visually observed. So, for the rest of the modeling we will model without the odor predictor.
 
 ```{r}
-ggplot(mush.df, aes(x = cap.shape, y = cap.color, col = class)) +
-   geom_jitter(alpha = 0.5) +
-   scale_color_manual(breaks = c("e", "p"),
-                      values = c("green", "red"),
-                      labels = c("Edible", "Poisonous"))+
-   labs(title = "Mushroom classification based on cap color and shape")
+odor_free.df <- mush.df %>% select(-"odor")
 ```
 
-Do gills have anything to do with it?
+Let's get rid of the predictor that one has one factor as its useless.
 
 ```{r}
-ggplot(mush.df, aes(x = gill.size, y = gill.spacing, col = class)) +
-   geom_jitter(alpha = 0.5) +
-   scale_color_manual(breaks = c("e", "p"),
-                      values = c("green", "red"),
-                      labels = c("Edible", "Poisonous"))+
-   labs(title = "Mushroom classification based on gill size and spacing")
+odor_free.df <- odor_free.df %>% select(-"veil.type")
+numPreds <- 20
+```
+
+Let's rerun KNN now without the odor predictor.
+
+```{r}
+err <- vector()
+err[1] <- calcErrorKnnClass(1,odor_free.df)
+for(i in c(3:50))
+{
+  err[i-1] <- calcErrorKnnClass(i,odor_free.df)
+}
+Knn_error <- min(err)
+(Knn_error)
+```
+
+```{r}
+res.df <- data.frame(kVal=c(1,seq(3,50)),mse=err)
+plot(res.df)
+```
+
+
+Still a very low error.
+
+```{r}
+randomForestMSE(20,odor_free.df)
+```
+
+Error is still pretty much 0.
+
+Let's again see why.
+```{r}
+numTree <- 100
+mod.bag <- randomForest(class ~ .,
+                       data=odor_free.df,
+                       ntree=numTree,
+                       mtry=(22),
+                       importance=TRUE)
+importVals <-mod.bag$importance
+importVals <- importVals[,1]
+varNames <- row.names(mod.bag$importance)
+importanceBag.df <- data.frame(importance=importVals,
+                     var=varNames)%>%
+    arrange(desc(importance))
+varNames <- importanceBag.df$var
+importanceBag.df <-importanceBag.df%>%
+    mutate(var=factor(var,levels=rev(varNames)))
+
+bag.gg <- importanceBag.df[1:numPreds,] %>%
+    ggplot()+
+    geom_bar(aes(var,importance),stat="identity",fill="red")+
+    coord_flip()+
+    labs(title="Importance of Predictors",
+         subtitle="Bagging",
+         x="",
+         y="")
+bag.gg
+```
+
+This time the spore.print.color is a very strong predictor. Does it have the same issue occur where it alone can predict almost all of mushroom's class?
+
+```{r}
+mod.bag <- randomForest(class ~ spore.print.color,
+                       data=odor_free.df,
+                       ntree=numTree,
+                       mtry=(1))
+(mean(mod.bag$err.rate))
+```
+
+Its misses out on about 13%, significantly more errors than what odor was capable of. So, the modeling will still be interesting if we keep it. 
+
+We know that with the current set of predictors both KNN and RandomForest can get 0, or near 0, error. How about some of the other models?
+
+
+Now that we have some models that can get 0 error, how many predictors do we actually need to stay within less than 1% error? To find our best predictors, let's use forward selection.
+
+```{r}
+availPreds <- 2:(numPreds+1)
+modelPreds <- c()
+```
+
+```{r warning=FALSE}
+maxR2 <- c()
+while(length(availPreds) > 0){
+    allR2 <- c()
+    for(id in availPreds){
+      augPreds <- c(modelPreds,id)
+      data.df <- odor_free.df[,c(1,augPreds)]
+      data.df <- data.df %>%
+        mutate(class = ifelse(class == 'e',0,1))
+      numFolds <- 10
+      n <- nrow(data.df)
+      folds <- sample(1:numFolds,n,rep=T)
+      errs <- numeric(numFolds)
+      for(fold in 1:numFolds){
+        train.df <- data.df[folds != fold,] 
+        test.df <- data.df[folds == fold,]
+        mod.lm <- lm(class ~ ., 
+                      data=train.df,
+                      family=binomial())
+        test.df$preds <- predict(mod.lm, 
+                                 newdata = test.df, 
+                                 type = "response")
+        test.df <- test.df %>%
+           mutate(preds = ifelse(preds > 0.5, 1, 0))
+        errs[fold] <- with(test.df,mean(class != preds))
+      }
+      allR2 <- c(allR2,mean(errs))
+    }
+    ##Find the index of the min R^2
+    max.id <- which.min(allR2)
+    ##get the best predictor and R^2
+    bestPred <- availPreds[max.id]
+    bestR2 <- min(allR2)
+    ##Add these into the collection
+    modelPreds <- c(modelPreds,bestPred)
+    ## remove the  bestPred from  the availPreds
+    availPreds <- setdiff(availPreds,bestPred)
+    maxR2 <- c(maxR2,bestR2)
+    ##remove bestsPred from avail
+    ## Print stuff out for debugging and attention-grabbing
+    print(sprintf("Pred Added: %s  MSE Value: %s",bestPred,round(bestR2,3)))
+    ##print(modelPreds)
+}
+```
+
+It seems we need about 10 predictors to get under 1% error.
+
+Store these predictors for use later.
+```{r}
+bestPredsLM <- modelPreds
+```
+
+Now for KNN, we already know 19 is by far the best so we will start with that and add the rest. 
+
+```{r}
+availPreds <- c(2:18,20:(numPreds+1))
+modelPreds <- c(19)
+```
+
+```{r warning=FALSE}
+maxR2 <- c()
+while(length(availPreds) > 0){
+    allR2 <- c()
+    for(id in availPreds){
+      augPreds <- c(modelPreds,id)
+      data.df <- odor_free.df[,c(1,augPreds)]
+      numFolds <- 10
+      n <- nrow(data.df)
+      folds <- sample(1:numFolds,n,rep=T)
+      errs <- numeric(numFolds)
+      for(fold in 1:numFolds){
+         train.df <- data.df[folds != fold,] 
+         test.df <- data.df[folds == fold,]  
+         train.x <- data.matrix(train.df[,-1])
+         resp.x<- data.matrix(train.df[c("class")])
+         test.x <- data.matrix(test.df[,-1])
+         mod.knn <- knn(train.x,test.x,resp.x,k=1)
+         classes <- c("p","e") 
+         errs[fold] <- with(test.df,mean(class != classes[(mod.knn==1)+1]))
+      }
+      allR2 <- c(allR2,mean(errs))
+    }
+    ##Find the index of the min R^2
+    max.id <- which.min(allR2)
+    ##get the best predictor and R^2
+    bestPred <- availPreds[max.id]
+    bestR2 <- min(allR2)
+    ##Add these into the collection
+    modelPreds <- c(modelPreds,bestPred)
+    ## remove the  bestPred from  the availPreds
+    availPreds <- setdiff(availPreds,bestPred)
+    maxR2 <- c(maxR2,bestR2)
+    ##remove bestsPred from avail
+    ## Print stuff out for debugging and attention-grabbing
+    print(sprintf("Pred Added: %s  MSE Value: %s",bestPred,round(bestR2,3)))
+    ##print(modelPreds)
+}
+```
+
+Only needs about 6 predictors to get error under 1%, significantly better than the linear model.
+
+Store these predictors for use later.
+```{r}
+bestPredsKNN <- modelPreds
 ```
 
 ## RPART
 
+```{r}
+library(rpart.plot)
+```
+
 Pick an ideal CP
 
 ```{r}
-data.df <- mush.df
+data.df <- odor_free.df
 numFolds <- 10
 n <- nrow(data.df)
 folds <- sample(1:numFolds,n,rep=T)
@@ -225,9 +404,8 @@ bestCP <- mod.rpart$cptable[which.min(mod.rpart$cptable[, "xerror"]), "CP"]
 
 Let's do some CV stuff with folds
 ```{r}
-calcErrorRpartClass <- function(test_formula){
+calcErrorRpartClass <- function(test_formula,data.df){
    frm <- as.formula(test_formula)
-   data.df <- mush.df
    numFolds <- 10
    n <- nrow(data.df)
    folds <- sample(1:numFolds,n,rep=T)
@@ -246,25 +424,404 @@ calcErrorRpartClass <- function(test_formula){
    }
    (mean(errs))
 }
-calcErrorRpartClass("class ~ .")
 ```
-
-
-Curiosity never really killed the cat, only action did.
 
 ```{r}
-library(rpart.plot)
-## Make a new model using best cp
-mod.rpart.pruned <- prune(mod.rpart, cp = bestCP)
-rpart.plot(mod.rpart.pruned, extra = 100, box.palette = "GnBu", nn = T)
+availPreds <- 2:(numPreds+1)
+modelPreds <- c()
 ```
 
+```{r warning=FALSE}
+maxR2 <- c()
+while(length(availPreds) > 0){
+    allR2 <- c()
+    for(id in availPreds){
+      augPreds <- c(modelPreds,id)
+      sub_data.df <- odor_free.df[,c(1,augPreds)]
+      err <- calcErrorRpartClass("class ~ .",sub_data.df)
+      allR2 <- c(allR2,err)
+    }
+    ##Find the index of the min R^2
+    max.id <- which.min(allR2)
+    ##get the best predictor and R^2
+    bestPred <- availPreds[max.id]
+    bestR2 <- min(allR2)
+    ##Add these into the collection
+    modelPreds <- c(modelPreds,bestPred)
+    ## remove the  bestPred from  the availPreds
+    availPreds <- setdiff(availPreds,bestPred)
+    maxR2 <- c(maxR2,bestR2)
+    ##remove bestsPred from avail
+    ## Print stuff out for debugging and attention-grabbing
+    print(sprintf("Pred Added: %s  MSE Value: %s",bestPred,round(bestR2,3)))
+    ##print(modelPreds)
+}
+```
 
-
-## RandomForest
+Only four predictors needed to get under a 1% error and its 0% at that.
 
 ```{r}
-library(randomForest)
-mod.rf <- randomForest(class ~ ., ntree = 50, data = train.df)
-plot(mod.rf)
+bestPredsRPART <- modelPreds
 ```
+
+Let's run it again on those 4 predictors.
+
+```{r}
+calcErrorRpartClass("class ~ .",odor_free.df[,c(1,bestPredsRPART[1:4])])
+```
+
+Yeah, still less than 1% error. 
+
+
+##Conclusion for Optimal Parsimonous Model
+We found that the predictors were so good that, even when removing the best predictor Odor, we would still get 0 error on any model of the models used. However, when looking for the parsimonious model, we noticed that certain models work better than others. Of the three tested, linear was the worst, needing at least 10 predictors to get 0 error. This makes sense as the dataset had predictors that were all factors, meaning linear trends were not entirely possible. Both KNN and RPART did very well. In the case of KNN, since many mushrooms were very similar we could use a kval of 1 that essentially was the model taking another mushroom with the same, or nearly the same characteristics and classifying the same. What this means is that if two different mushrooms have similar characteristics, it would be extremely unlikely for one poisonous and the other edible. But, the best was RPART. Since RPART is partitioning the data, it is similar to how a dichotomous key would work. Its possible the predictors of the dataset are chosen in such a way that they are all that are needed for a person to identify whether it is poisonous by hand. Thus, it makes sense that RPART would be able to get 0 error with the least predictors. 
+
+
+##Applying a Cost to the Model
+If we were out scavenging for mushrooms to eat, we would be more concerned about not eating a poisonous mushroom than maximizing the amout we can eat. So, to reflect this, we could  build a cost matrix and look at different thresholds.
+
+First, let's try a model where poisonous mushrooms just make you a little sick, perhaps under the assumption that the really poisonous ones are easy to identify and won't ever be predicted incorrectly. 
+
+```{r}
+calcCostSickMushrooms <- function(prediction, actual)
+{
+  cost <- 0
+  for(i in 1:length(prediction))
+    {
+    if(prediction[i] == actual[i] && prediction[i] == 'e')
+    {
+      cost <- cost-10 ##Ate edible mushroom
+    }
+    else if(prediction[i] == actual[i] && prediction[i] == 'p')
+    {
+      cost <- cost  ##Identified poision mushroom 
+    }
+    else if(prediction[i] != actual[i] && prediction[i] == 'p')
+    {
+      cost <- cost+20 ##Missed out on mushroom
+    }
+    else
+    {
+      cost <- cost+100 ##Ate Poison Mushroom
+    }
+  }
+  (cost)
+}
+```
+
+```{r}
+calcCostRpartClass <- function(test_formula,data.df,threshold){
+   frm <- as.formula(test_formula)
+   numFolds <- 10
+   n <- nrow(data.df)
+   folds <- sample(1:numFolds,n,rep=T)
+   errs <- numeric(numFolds)
+   for(fold in 1:numFolds){
+      train.df <- data.df[folds != fold,] 
+      test.df <- data.df[folds == fold,]
+      mod.rpart <- rpart(frm, 
+                    data=train.df,
+                    method = "class",
+                    cp = bestCP)
+      test.df$preds <- predict(mod.rpart, 
+                               newdata = test.df, 
+                               type = "p")
+      test.df$preds <- ifelse(test.df$preds[,1]< threshold,'p','e')
+      errs[fold] <- calcCostSickMushrooms(test.df$preds,test.df$class)
+   }
+   (mean(errs))
+}
+```
+
+Since our best parsimonious has the potential for zero error, we can't exactly use for finding a threshold as the best threshold will just end up being whichever one so happens to get zero error. So, we will use the best 3.
+
+```{r}
+costs <- vector()
+threshes <- seq(0.1,1,by=.01)
+for(i in 1:length(threshes))
+{
+  costs[i] <- calcCostRpartClass("class ~ .",odor_free.df[,c(1,bestPredsRPART[1:3])],threshes[i])
+}
+(threshes[which.min(costs)])
+(min(costs))
+```
+
+Very low cost due to the very low error.
+
+Suppose we have only the two best predictors.
+
+```{r}
+costs <- vector()
+threshes <- seq(0.1,1,by=.01)
+for(i in 1:length(threshes))
+{
+  costs[i] <- calcCostRpartClass("class ~ .",odor_free.df[,c(1,bestPredsRPART[1:2])],threshes[i])
+}
+(threshes[which.min(costs)])
+(min(costs))
+```
+
+We see a best threshold around 0.3 for both predictors. However, having one more predictor did lower the cost. 
+
+What if the mushrooms are more potent and have very high cost of 1000000? 
+
+```{r}
+calcCostSickMushrooms <- function(prediction, actual)
+{
+  cost <- 0
+  for(i in 1:length(prediction))
+    {
+    if(prediction[i] == actual[i] && prediction[i] == 'e')
+    {
+      cost <- cost-10 ##Ate edible mushroom
+    }
+    else if(prediction[i] == actual[i] && prediction[i] == 'p')
+    {
+      cost <- cost  ##Identified poision mushroom 
+    }
+    else if(prediction[i] != actual[i] && prediction[i] == 'p')
+    {
+      cost <- cost+20 ##Missed out on mushroom
+    }
+    else
+    {
+      cost <- cost+1000000 ##Ate Poison Mushroom
+    }
+  }
+  (cost)
+}
+```
+
+```{r}
+costs <- vector()
+threshes <- seq(0.1,1,by=.01)
+for(i in 1:length(threshes))
+{
+  costs[i] <- calcCostRpartClass("class ~ .",odor_free.df[,c(1,bestPredsRPART[1:3])],threshes[i])
+}
+(threshes[which.min(costs)])
+(min(costs))
+```
+
+We see about 0.9 threshold. Since the cost is still quite negative, there was no eating of poisonous mushrooms.
+
+What if we only had the two predictors.
+
+```{r}
+costs <- vector()
+threshes <- seq(0.1,1,by=.01)
+for(i in 1:length(threshes))
+{
+  costs[i] <- calcCostRpartClass("class ~ .",odor_free.df[,c(1,bestPredsRPART[1:2])],threshes[i])
+}
+(threshes[which.min(costs)])
+(min(costs))
+```
+
+With only two predictors, we have an even more conservative approach. However, since the threshold is less than 1, we can still avoid poison mushrooms completely with just 2 predictors without having to assume that all of them are poisonous.
+
+The better someone is at predicting, the less conservative they are when dealing with potentially lethal mushrooms. This logically makes sense. The fact that the null prediction did not occur, implies that there are many mushrooms are so clearly edible with just two predictors outside of the odor.
+
+What are these two predictors?
+
+```{r}
+attr_names <- colnames(odor_free.df)
+(attr_names[bestPredsRPART[1:2]])
+```
+
+```{r}
+ggplot(mush.df, aes(x = gill.size, y = spore.print.color, col = class)) +
+   geom_jitter(alpha = 0.5) +
+   scale_color_manual(breaks = c("e", "p"),
+                      values = c("green", "red"),
+                      labels = c("Edible", "Poisonous"))+
+   labs(title = "Mushroom classification based on gill size and spore.print.color")
+```
+
+Here we can see that there are many regions where nothing in it is poisonous. However, we can also notice that if we had spore print color alone, there are 4 rarer colors that are always edible. But, for most of the mushrooms, gill size will also be needed to make the classification.
+
+Let's look at some more qualities of mushrooms.
+
+##Predicting based on certain qualities of mushroom
+
+```{r}
+ggplot(mush.df, aes(x = cap.shape, y = cap.color, col = class)) +
+   geom_jitter(alpha = 0.5) +
+   scale_color_manual(breaks = c("e", "p"),
+                      values = c("green", "red"),
+                      labels = c("Edible", "Poisonous"))+
+   labs(title = "Mushroom classification based on cap color and shape")
+```
+
+It looks like we are able to learn some useful things only by looking at the cap color and shape, but as you can see specifically with white mushrooms, the cap shape of a white mushroom is not a good enough deciding factor regarding the edibility of said mushroom. It appears (based on previous and future work) that we will need more than two factors for our analysis regardless of what they are.
+
+```{r}
+ggplot(mush.df, aes(x = gill.size, y = gill.spacing, col = class)) +
+   geom_jitter(alpha = 0.5) +
+   scale_color_manual(breaks = c("e", "p"),
+                      values = c("green", "red"),
+                      labels = c("Edible", "Poisonous"))+
+   labs(title = "Mushroom classification based on gill size and spacing")
+```
+
+It would have been really surprising if this would have worked to be perfectly frank. These two factors are not what you would expect to look at when determining whether or not a mushroom is poisonous. With that being said, big wide gills seem to almost guarantee an edible mushroom. Neat!
+
+##Characterizing mushrooms into groups using PCA
+
+
+```{r}
+mush.mat <- data.matrix(mush.df)
+mod.pca <- prcomp(mush.mat,scale=F)
+```
+
+```{r}
+summary(mod.pca)
+```
+
+We see that it takes 5 PCs to get 75% of variance accounted for.
+
+```{r}
+attrRotated <- mod.pca$x
+rotation.mat <- mod.pca$rotation
+```
+
+```{r}
+attrRotated.df <- data.frame(attrRotated)
+rotation.df <- data.frame(rotation.mat)
+rotation.df$attribs <- colnames(mush.df)
+```
+
+```{r}
+sc <- 200  ## get everything on the same scale
+attrRotated.df %>% 
+  ggplot()+
+  geom_point(aes(PC1,PC2))+
+  geom_segment(data=rotation.df,
+             aes(x=0,y=0,xend=sc*PC1,yend=sc*PC2),size=1,color="red")+
+  geom_label(data=rotation.df,
+              aes(sc*PC1,sc*PC2,label=attribs),color="red")+
+  labs(title="PCA for Mushrooms")
+```
+
+
+Seems kinda useless. The one out further have more factors.
+
+
+## K-Modes Clustering
+
+Since our dataset is completely categorical, we cannot use the standard k-means clutering. Instead, we use its younger brother k-modes. Luckily, this relatively new method has an easy to implement package written in R called klaR.
+
+```{r}
+library(klaR)
+library(MASS)
+```
+
+Let's get a cluster from our data, including all categories. We'll start with 2 clusters as this is naturally built into our data.
+```{r}
+data.df <- na.omit(mush.df) #Get those NA's out of here!
+cluster.kmodes <- kmodes(data.df, 2, iter.max = 10, weighted = F)
+data.df$cluster <- cluster.kmodes$cluster
+with(cluster.kmodes, table(data.df$class, cluster))
+```
+
+Let's see if our clutsering correctly determined whether or not a mushroom is edible.
+
+```{r}
+with(mutate(data.df, class = ifelse(class == "e", 1, 2)), mean(class != cluster))
+```
+
+Admittedly, it appears as if poisonous and edible mushrooms can't be clustered quite so simply.
+
+Let's adjust by adding a few more clusters, say, 10.
+
+```{r}
+cluster.kmodes <- kmodes(data.df, 10, iter.max = 10, weighted = F)
+data.df$cluster <- cluster.kmodes$cluster
+table.kmodes <- with(cluster.kmodes, table(data.df$class, cluster))
+```
+
+With the exception of a few clusters, these are pretty well separated by edibility now. 
+```{r}
+purity.kmodes <- sum(apply(table.kmodes, 10, max)) / nrow(data.df)
+```
+
+Let's move on to some other clustering methods.
+
+## One-Hot Encoding
+
+There is technically a work-around that we could use to implement a k-means clustering, and that is the one-hot encoding. Essentially we create dummy variables for each value of a category, for each predictor.
+
+```{r}
+# Remove veil type
+data.df <- mush.df
+data.df$veil.type <- NULL
+data.ohe <- model.matrix(~.-1, data=data.df)
+```
+
+Let's take a quick peak at our one-hot encoded data
+
+```{r}
+str(data.ohe)
+```
+
+Awesome, it gave us everything we need to do some k-means clustering.
+
+## K-Means
+
+Let's first get some libraries that we'll need.
+```{r}
+library(cluster)
+library(factoextra)
+```
+
+Scale our data, for safety.
+```{r}
+data.ohe <- scale(data.ohe)
+```
+
+### Optimal Number of Clusters
+
+First, let's make a function to help us find the optimal number of clusters.
+```{r}
+wss <- function(k) {
+  kmeans(data.ohe, k, nstart = 25)$tot.withinss
+}
+```
+
+Compute and plot wss for k = 1 to k = 20
+```{r}
+kVals <- 1:20
+wssVals <- map_dbl(kVals, wss)
+plot(kVals, wssVals, type="b", xlab="Number of Clusters", ylab="Within-Clusters of SS (sum of squares)")
+```
+
+It looks like $k = 12$ is our elbow value. Let's double check this with some built-in methods.
+
+```{r}
+# Double check with fviz
+fviz_nbclust(data.ohe, kmeans, method = "wss", k.max = 20)
+```
+This chart is a bit more inconclusive, $k = 12$ certainly works, but is a less convincing answer.
+
+Let's use the silhouette method built into `fviz_nbclust` to triple check our work.
+
+```{r}
+fviz_nbclust(data.ohe, kmeans, method = "silhouette", k.max = 20)
+```
+
+This is showing that 12 is optimal, which is good news. 
+
+Plot clusters using optimal k value, $k = 12$.
+
+```{r}
+kOpt <- 12
+final <- kmeans(data.ohe, kOpt, nstart = 25)
+print(final$size)
+```
+
+And our plot
+```{r}
+fviz_cluster(final, data = data.ohe)
+```
+
+
