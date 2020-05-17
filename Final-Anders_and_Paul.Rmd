@@ -382,7 +382,7 @@ bestPredsKNN <- modelPreds
 library(rpart.plot)
 ```
 
-Pick an ideal CP
+Pick an ideal CP, we'll plot a curve of CP vs. Error using the built in function plotcp.
 
 ```{r}
 data.df <- odor_free.df
@@ -397,12 +397,17 @@ mod.rpart <- rpart(class ~ .,
 plotcp(mod.rpart)
 ```
 
-Find best CP
 ```{r}
-bestCP <- mod.rpart$cptable[which.min(mod.rpart$cptable[, "xerror"]), "CP"]
+mod.rpart$cptable
 ```
 
-Let's do some CV stuff with folds
+Find best CP, just the lowest X-related Error on the cptable.
+```{r}
+(bestCP <- mod.rpart$cptable[which.min(mod.rpart$cptable[, "xerror"]), "CP"])
+```
+It might even go smaller, it's hard to tell but this ought to be small enough.
+
+Now we can build a function that reports the rpart error given a specific formula. We can use this to select a subset of predictors.
 ```{r}
 calcErrorRpartClass <- function(test_formula,data.df){
    frm <- as.formula(test_formula)
