@@ -920,6 +920,9 @@ grid.arrange(p3, p4, nrow = 1)
 
 The separation isn't quite there yet. As we can see, we need a few more clusters until we have really good separation. To be fair, when $k=4$ there aren't any overlapping points on the plot, but the third cluster is disproportionately large compared to the others.
 
+## Cluster Conclusion
+
+Clustering a dataset of only categorical data has proved to be rather challenging, as the methods to do so are relatively un-used so far as we could tell during our research. Using a method like k-modes, which has been around since 1998 was useful, but as mentioned earlier without having names for our mushrooms in the dataset it was rather difficult to tell what exactly we were looking at for any one of these clustering algorithms. One interesting thing to note is that the optimal k value was almost identical between kmeans and kmodes when all of the predictors were accounted for. Even though kmodes does not work in the same way. It essentially calculates a "difference factor", so to speak, and uses that rather than a euclidean distance such as the one used by kmeans. It was very nice to be able to work with built in packages for our Rock algorithm. There were plans to use a gap statistic algorithm but unfortunately that algorithm ran into an error where it could not converge on a value for some of the data entries, and ultimately it needed to be scrapped. 
 
 
 
