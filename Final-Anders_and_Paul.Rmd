@@ -886,7 +886,7 @@ fviz_nbclust(data.ohe, kmeans, method = "silhouette", k.max = 10)
 
 By the looks of things, 9 is right around where we want to be for our optimal value. Judging off of the WSS method alone, it almost looks like $k=4$ would be an elbow, but based on the silhouette data as well as the WSS data, $k=9$ is optimal.
 
-Step 3: Plot clusters
+Step 3: Plot optimal clusters
 
 ```{r}
 kOpt <- 9
@@ -900,4 +900,29 @@ Plot:
 fviz_cluster(final, data=data.ohe)
 ```
 
-Theres some interesting stuff going on here especially with the gaps in the clusters, but they are pretty separated which is ideal.
+Theres some interesting stuff going on here especially with the gaps in the clusters, but they are pretty separated which is ideal. Without having names for our mushrooms it is admittedly difficult to tell which is which.
+
+Just out of curiosity, let's look at something with only 3 or 4 clusters.
+
+```{r}
+threeK <- kmeans(data.ohe, 3, nstart = 25)
+fourK <- kmeans(data.ohe, 4, nstart = 25)
+
+p3 <- fviz_cluster(threeK, geom = "point", 
+                   data = data.ohe) +
+   ggtitle("k = 3")
+p4 <- fviz_cluster(fourK, geom = "point",
+                   data = data.ohe) +
+   ggtitle("k = 4")
+library(gridExtra)
+grid.arrange(p3, p4, nrow = 1)
+```
+
+The separation isn't quite there yet.
+
+
+
+
+
+
+
