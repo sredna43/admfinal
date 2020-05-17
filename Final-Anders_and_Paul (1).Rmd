@@ -730,26 +730,10 @@ Let's see if our clutsering correctly determined whether or not a mushroom is ed
 with(mutate(data.df, class = ifelse(class == "e", 1, 2)), mean(class != cluster))
 ```
 
-Admittedly, it appears as if poisonous and edible mushrooms can't be clustered quite so simply.
-
-Let's adjust by adding a few more clusters, say, 10.
-
-```{r}
-cluster.kmodes <- kmodes(data.df, 10, iter.max = 10, weighted = F)
-data.df$cluster <- cluster.kmodes$cluster
-table.kmodes <- with(cluster.kmodes, table(data.df$class, cluster))
-```
-
-With the exception of a few clusters, these are pretty well separated by edibility now. 
-```{r}
-purity.kmodes <- sum(apply(table.kmodes, 10, max)) / nrow(data.df)
-```
-
-Let's move on to some other clustering methods.
 
 ## One-Hot Encoding
 
-There is technically a work-around that we could use to implement a k-means clustering, and that is the one-hot encoding. Essentially we create dummy variables for each value of a category, for each predictor.
+There is technically a work-around that we could use to implement a k-means clustering, and that is the one-hot encoding. Essentially we create dummy variables for each value of a category.
 
 ```{r}
 # Remove veil type
@@ -784,7 +768,7 @@ data.ohe <- scale(data.ohe)
 First, let's make a function to help us find the optimal number of clusters.
 ```{r}
 wss <- function(k) {
-  kmeans(data.ohe, k, nstart = 25)$tot.withinss
+  kmeans(data.ohe, k, nstart = 10)$tot.withinss
 }
 ```
 
@@ -795,33 +779,23 @@ wssVals <- map_dbl(kVals, wss)
 plot(kVals, wssVals, type="b", xlab="Number of Clusters", ylab="Within-Clusters of SS (sum of squares)")
 ```
 
-It looks like $k = 12$ is our elbow value. Let's double check this with some built-in methods.
+It looks like $k = 17$ is our best bet so far.
 
 ```{r}
 # Double check with fviz
 fviz_nbclust(data.ohe, kmeans, method = "wss", k.max = 20)
 ```
-This chart is a bit more inconclusive, $k = 12$ certainly works, but is a less convincing answer.
+This seems to show us that 20 may actually be a better number. Let's try a few other methods out.
 
-Let's use the silhouette method built into `fviz_nbclust` to triple check our work.
+
+Let's use the silhouette method built into `fviz_nbclust` to double check our work.
 
 ```{r}
 fviz_nbclust(data.ohe, kmeans, method = "silhouette", k.max = 20)
 ```
 
-This is showing that 12 is optimal, which is good news. 
+Ok, so now $k = 12$ is optimal.
 
-Plot clusters using optimal k value, $k = 12$.
 
-```{r}
-kOpt <- 12
-final <- kmeans(data.ohe, kOpt, nstart = 25)
-print(final$size)
-```
-
-And our plot
-```{r}
-fviz_cluster(final, data = data.ohe)
-```
 
 
